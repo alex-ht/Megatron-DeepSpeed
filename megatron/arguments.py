@@ -53,6 +53,7 @@ def parse_args(extra_args_provider=None, defaults={},
     parser = _add_zero_args(parser)
     parser = _add_memoryopt_args(parser)
     parser = _add_activation_checkpoint_args(parser)
+    parser = _add_lora_args(parser)
 
     # Custom arguments.
     if extra_args_provider is not None:
@@ -1077,4 +1078,20 @@ def _add_activation_checkpoint_args(parser):
                        help='does a synchronize at the beginning and end of each checkpointed layer.')
     group.add_argument('--profile-backward', action='store_true',
                        help='Enables backward pass profiling for checkpointed layers.')
+    return parser
+
+def _add_lora_args(parser):
+    group = parser.add_argument_group(title='LoRA')
+    group.add_argument('--enable-lora', action='store_true',
+                       help='Enable LoRA')
+    group.add_argument('--lora-r', type=int, default=8,
+                       help='Lora attention dimension.')
+    group.add_argument('--lora-alpha', type=float, default=32,
+                       help='The alpha parameter for Lora scaling.')
+    group.add_argument('--lora-dropout', type=float, default=0.1,
+                       help='The dropout probability for Lora layers.')
+    group.add_argument('--lora-merge-weights', action='store_true',
+                       help='Whether to merge the weights of the Lora layers with the base transformer model in `eval` mode.')
+    group.add_argument('--fan-in-fan-out', action='store_true',
+                       help='Set this to True if the layer to replace stores weight like (fan_in, fan_out)')
     return parser

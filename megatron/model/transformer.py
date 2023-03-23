@@ -94,6 +94,12 @@ class ParallelMLP(MegatronModule):
             input_is_parallel=True,
             init_method=output_layer_init_method,
             skip_bias_add=True)
+        
+        # lora
+        self.enable_lora = args.enable_lora
+        if self.enable_lora:
+            for p in self.dense_4h_to_h.parameters():
+                p.requires_grad = False
 
 
     def forward(self, hidden_states):

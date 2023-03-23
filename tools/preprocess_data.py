@@ -84,6 +84,8 @@ class Encoder(object):
             text = data[key]
             if self.args.prepend_space:
                 text = f" {text}"
+            if self.args.prepend_newlines:
+                text = f"\n\n{text}"
             doc_ids = []
             for sentence in Encoder.splitter.tokenize(text):
                 sentence_ids = Encoder.tokenizer.tokenize(sentence)
@@ -126,6 +128,8 @@ def get_args():
                        help='Append a bos token to the end of a document.')
     group.add_argument('--prepend-space', action='store_true',
                     help='Prepends a space to the beginning of a document')
+    group.add_argument('--prepend-newlines', action='store_true',
+                    help='Prepends two newlines to the beginning of a document')
     group.add_argument("--tokenizer-name-or-path", type=str, default=None,
                        help="Name or path of the huggingface tokenizer.")
     group.add_argument('--make-vocab-size-divisible-by', type=int, default=128,

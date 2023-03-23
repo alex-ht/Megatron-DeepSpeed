@@ -118,6 +118,10 @@ class Encoder(object):
         ids = {}
         for key in self.args.columns:
             doc_ids = []
+            if self.args.prepend_space:
+                text = f" {text}"
+            if self.args.prepend_newlines:
+                text = f"\n\n{text}"
             for sentence in self.splitter.tokenize(text):
                 sentence_ids = self.tokenizer.tokenize(sentence)
                 if len(sentence_ids) > 0:
@@ -161,6 +165,10 @@ def get_args():
                        help='Path to the BPE merge file (if necessary).')
     group.add_argument('--append-eod', action='store_true',
                        help='Append an <eod> token to the end of a document.')
+    group.add_argument('--prepend-space', action='store_true',
+                    help='Prepends a space to the beginning of a document')
+    group.add_argument('--prepend-newlines', action='store_true',
+                    help='Prepends two newlines to the beginning of a document')
 
     group = parser.add_argument_group(title='output data')
     group.add_argument('--output-prefix', type=str, required=True,

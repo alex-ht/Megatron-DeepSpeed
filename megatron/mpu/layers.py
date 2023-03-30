@@ -524,6 +524,3 @@ class RowParallelLinear(torch.nn.Module):
             output = output_
             output_bias = self.bias
         return output, output_bias
-
-def mark_only_lora_as_trainable(model):
-    

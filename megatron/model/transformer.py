@@ -723,6 +723,15 @@ class ParallelTransformer(MegatronModule):
             get_cuda_rng_tracker = deepspeed.checkpointing.get_cuda_rng_tracker
             checkpoint = deepspeed.checkpointing.checkpoint
 
+        if args.enable_lora:
+            # mark_only_lora_as_trainable
+            for n, p in self.named_parameters():
+                if "lora_" not in n:
+                    print("[LoRA] non-trainable:", n)
+                    p.requires_grad = False
+                else:
+                    print("[LoRA] trainable:", n)
+
     def _get_layer(self, layer_number):
         return self.layers[layer_number]
 

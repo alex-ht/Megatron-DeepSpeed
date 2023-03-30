@@ -47,10 +47,9 @@ def model_provider(pre_process=True, post_process=True):
             print("[LoRA] mark_only_lora_as_trainable")
             for n, p in model.named_parameters():
                 if "lora_" not in n:
-                    print("[LoRA] non-trainable:", n)
                     p.requires_grad = False
                 else:
-                    print("[LoRA] trainable:", n)
+                    p.requires_grad = True
 
     see_memory_usage(f"After Building Model", force=True)
     return model

@@ -370,8 +370,8 @@ class ColumnParallelLinear(torch.nn.Module):
         bias = self.bias if not self.skip_bias_add else None
         output_parallel = F.linear(input_parallel, self.weight, bias)
         if self.enable_lora:
-            tmp = F.linear(input_parallel, self.lora_A, None)
-            output_parallel_lora = F.linear(tmp, self.lora_B, bias)
+            tmp = F.linear(input_parallel, self.lora_B, None)
+            output_parallel_lora = F.linear(tmp, self.lora_A, bias)
             output_parallel_lora *= self.lora_scaling
             output_parallel += output_parallel_lora
         if self.gather_output:
@@ -510,8 +510,8 @@ class RowParallelLinear(torch.nn.Module):
         # Matrix multiply.
         output_parallel = F.linear(input_parallel, self.weight)
         if self.enable_lora:
-            tmp = F.linear(input_parallel, self.lora_A, None)
-            output_parallel_lora = F.linear(tmp, self.lora_B, None)
+            tmp = F.linear(input_parallel, self.lora_B, None)
+            output_parallel_lora = F.linear(tmp, self.lora_A, None)
             output_parallel_lora *= self.lora_scaling
             output_parallel += output_parallel_lora
         

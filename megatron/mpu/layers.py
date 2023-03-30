@@ -324,7 +324,8 @@ class ColumnParallelLinear(torch.nn.Module):
                 self.lora_B = Parameter(torch.empty(self.lora_r,
                                                 self.input_size,
                                                 dtype=args.params_dtype))
-                self.lora_B.zero_()
+                with torch.no_grad():
+                    self.lora_B.zero_()
         else:
             self.weight = Parameter(torch.empty(
                 self.output_size_per_partition, self.input_size,
@@ -340,7 +341,8 @@ class ColumnParallelLinear(torch.nn.Module):
                 self.lora_B = Parameter(torch.empty(
                     self.lora_r, self.input_size,
                     device=torch.cuda.current_device(), dtype=args.params_dtype))
-                self.lora_B.zero_()
+                with torch.no_grad():
+                    self.lora_B.zero_()
 
         if bias:
             if args.use_cpu_initialization:
@@ -461,7 +463,8 @@ class RowParallelLinear(torch.nn.Module):
                 self.lora_B = Parameter(torch.empty(self.lora_r,
                                                 self.input_size_per_partition,
                                                 dtype=args.params_dtype))
-                self.lora_B.zero_()
+                with torch.no_grad():
+                    self.lora_B.zero_()
         else:
             self.weight = Parameter(torch.empty(
                 self.output_size, self.input_size_per_partition,
@@ -477,7 +480,8 @@ class RowParallelLinear(torch.nn.Module):
                 self.lora_B = Parameter(torch.empty(
                     self.lora_r, self.input_size_per_partition,
                     device=torch.cuda.current_device(), dtype=args.params_dtype))
-                self.lora_B.zero_()
+                with torch.no_grad():
+                    self.lora_B.zero_()
         
         if bias:
             if args.use_cpu_initialization:

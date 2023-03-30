@@ -447,7 +447,7 @@ def setup_model_and_optimizer(model_provider_func):
         # max time.
         torch.distributed.barrier()
         timers('load-checkpoint').start()
-        args.iteration = load_checkpoint(model, optimizer, lr_scheduler)
+        args.iteration = load_checkpoint(model, optimizer, lr_scheduler, strict=not args.enable_lora)
         torch.distributed.barrier()
         timers('load-checkpoint').stop()
         timers.log(['load-checkpoint'])

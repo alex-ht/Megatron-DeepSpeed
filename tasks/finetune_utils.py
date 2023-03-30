@@ -268,7 +268,7 @@ def finetune(train_valid_datasets_provider, model_provider,
     if args.iteration == 0 and args.pretrained_checkpoint is not None:
         original_load = args.load
         args.load = args.pretrained_checkpoint
-        _ = load_checkpoint(model, None, None)
+        _ = load_checkpoint(model, None, None, strict=not args.enable_lora)
         args.load = original_load
         # This is critical when only model is loaded. We should make sure
         # main parameters are also updated.

@@ -43,6 +43,14 @@ def model_provider(pre_process=True, post_process=True):
             model._megatron_batch_fn = get_batch_pipe
         else:
             raise NotImplementedError("DeepSpeed is required for T0")
+        if args.enable_lora:
+            print("[LoRA] mark_only_lora_as_trainable")
+            for n, p in model.named_parameters():
+                if "lora_" not in n:
+                    print("[LoRA] non-trainable:", n)
+                    p.requires_grad = False
+                else:
+                    print("[LoRA] trainable:", n)
 
     see_memory_usage(f"After Building Model", force=True)
     return model

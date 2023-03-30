@@ -421,6 +421,10 @@ def setup_model_and_optimizer(model_provider_func):
         if args.universal_checkpoint:
             config["checkpoint"] = {"load_universal": True}
 
+        print_rank_0("model[0] = ", model[0])
+        print_rank_0("optimizer = ", optimizer)
+        print_rank_0("config = ", config)
+        
         model, optimizer, _, lr_scheduler = deepspeed.initialize(
             model=model[0],
             optimizer=optimizer,

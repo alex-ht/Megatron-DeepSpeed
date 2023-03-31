@@ -15,6 +15,7 @@
 
 """GPT-2 model."""
 
+import re
 import torch
 
 from megatron import get_args
@@ -32,6 +33,10 @@ from megatron.model.fused_layer_norm import MixedFusedLayerNorm as LayerNorm
 from megatron.model.module import float16_to_fp32
 from .language_model import EmbeddingPipe
 from .transformer import ParallelTransformerLayerPipe
+#from megatron.mpu import ColumnParallelLinear
+#from megatron.mpu import RowParallelLinear
+#from megatron.mpu.lora import ColumnParallelLinear
+#from megatron.mpu.lora import RowParallelLinear
 
 
 def post_language_model_processing(lm_output, labels, logit_weights,
@@ -113,7 +118,8 @@ class GPTModel(MegatronModule):
                 labels = labels[:, :curriculum_seqlen].contiguous()
 
                 # attention_mask has size [1, 1, seqlen, seqlen]
-                attention_mask = attention_mask[:, :, :curriculum_seqlen, :curriculum_seqlen].contiguous()
+                attention_mask = attention_mask[:, :,
+                                                :curriculum_seqlen, :curriculum_seqlen].contiguous()
 
         lm_output = self.language_model(
             input_ids,
@@ -164,7 +170,8 @@ def get_cross_entropy(is_prefix: bool):
 
         args = get_args()
 
-        losses = mpu.vocab_parallel_cross_entropy(output.contiguous().float(), labels)
+        losses = mpu.vocab_parallel_cross_entropy(
+            output.contiguous().float(), labels)
 
         if is_prefix:
             micro_batch_size, sequence_length = loss_mask.shape
@@ -179,7 +186,8 @@ def get_cross_entropy(is_prefix: bool):
                     reweight = torch.arange(
                         sequence_length, 0, -1, dtype=torch.float, device=loss_mask.device
                     ) / (sequence_length + 1) * 2
-                    average_tokens_per_sample = reweight.flip(-1).cumsum(-1).mean()
+                    average_tokens_per_sample = reweight.flip(
+                        -1).cumsum(-1).mean()
                 else:
                     average_tokens_per_sample = (sequence_length + 1) / 2
             else:
@@ -187,18 +195,20 @@ def get_cross_entropy(is_prefix: bool):
             expected_number_of_tokens = average_tokens_per_sample * micro_batch_size
         elif args.norm_target_loss:
             expected_num_of_target_seqs = loss_mask.sum()
-            loss = torch.sum(losses.view(-1) * loss_mask) / expected_num_of_target_seqs
+            loss = torch.sum(losses.view(-1) * loss_mask) / \
+                expected_num_of_target_seqs
             return loss
         else:
             expected_number_of_tokens = loss_mask.sum()
 
         loss_mask = loss_mask.view(-1)
-        loss = torch.sum(losses.view(-1) * loss_mask) / expected_number_of_tokens
+        loss = torch.sum(losses.view(-1) * loss_mask) / \
+            expected_number_of_tokens
         return loss
     return CrossEntropy
 
 
-class GPTModelPipe(PipelineModule,MegatronModule):
+class GPTModelPipe(PipelineModule, MegatronModule):
     """GPT-2 Language model."""
 
     def __init__(
@@ -236,27 +246,30 @@ class GPTModelPipe(PipelineModule,MegatronModule):
 
         if args.fp32_residual_connection:
             if getattr(args, 'pretrain_causal_attention', False):
-                self.specs.append(lambda x: x.transpose(0, 1).contiguous().float())
+                self.specs.append(lambda x: x.transpose(
+                    0, 1).contiguous().float())
             else:
                 # EmbeddingPipe returns attention mask as well
-                self.specs.append(lambda x: (x[0].transpose(0, 1).contiguous().float(), *x[1:]))
+                self.specs.append(lambda x: (x[0].transpose(
+                    0, 1).contiguous().float(), *x[1:]))
         else:
             if getattr(args, 'pretrain_causal_attention', False):
                 self.specs.append(lambda x: x.transpose(0, 1).contiguous())
             else:
                 # EmbeddingPipe returns attention mask as well
-                self.specs.append(lambda x: (x[0].transpose(0, 1).contiguous(), *x[1:]))
+                self.specs.append(lambda x: (
+                    x[0].transpose(0, 1).contiguous(), *x[1:]))
 
         for layer_idx in range(args.num_layers):
             self.specs.append(
                 LayerSpec(ParallelTransformerLayerPipe,
-                    init_method=init_method,
-                    output_layer_init_method=scaled_init_method_normal(args.init_method_std,
-                                                                       args.num_layers),
-                    layer_number=layer_idx,
-                    # TODO: Change naming of class from GPT to something that encapsulate prefix lm.
-                    self_attn_mask_type=attn_mask_type)
-                )
+                          init_method=init_method,
+                          output_layer_init_method=scaled_init_method_normal(args.init_method_std,
+                                                                             args.num_layers),
+                          layer_number=layer_idx,
+                          # TODO: Change naming of class from GPT to something that encapsulate prefix lm.
+                          self_attn_mask_type=attn_mask_type)
+            )
 
         # Undo data format change
         def undo(x):
@@ -317,7 +330,70 @@ class GPTModelPipe(PipelineModule,MegatronModule):
             partition_method = 'type:transformer'
 
         super().__init__(layers=self.specs,
-                         loss_fn=get_cross_entropy(is_prefix=attn_mask_type is AttnMaskType.prefix),
+                         loss_fn=get_cross_entropy(
+                             is_prefix=attn_mask_type is AttnMaskType.prefix),
                          topology=topo,
                          activation_checkpoint_interval=interval,
                          partition_method=partition_method)
+        self.enable_lora = args.enable_lora
+        self.lora_kwargs = {
+            "r": args.lora_r,
+            "lora_alpha": args.lora_alpha,
+            "lora_dropout": args.lora_dropout,
+            "merge_weights": True,
+        }
+        if args.enable_lora:
+            self.target_modules = ['ColumnParallelLinear', 'RowParallelLinear']
+            self._find_and_replace()
+
+    def _find_and_replace(self):
+        key_list = [key for key, _ in self.named_modules()]
+        for key in key_list:
+            if isinstance(self.target_modules, str):
+                target_module_found = re.fullmatch(self.target_modules, key)
+            else:
+                target_module_found = any(key.endswith(
+                    target_key) for target_key in self.target_modules)
+            if target_module_found:
+                if not is_target_modules_in_base_model:
+                    is_target_modules_in_base_model = True
+                parent, target, target_name = self._get_submodules(key)
+                bias = target.bias is not None
+                if isinstance(target, CPL) and not self.enable_lora:
+                    new_module = ColumnParallelLinear(
+                        target.input_size,
+                        target.output_size,
+                        bias=hasattr(target, 'bias'),
+                        gather_output=target.gather_output,
+                        init_method=target.init_method,
+                        stride=target.stride,
+                        keep_master_weight_for_test=target.keep_master_weight_for_test,
+                        skip_bias_add=target.skip_bias_add,
+                        **self.lora_kwargs)
+                elif isinstance(target, RPL) and not self.enable_lora:
+                    new_module = RowParallelLinear(
+                        target.input_size,
+                        target.output_size,
+                        bias=hasattr(target, 'bias'),
+                        input_is_parallel=target.input_is_parallel,
+                        init_method=target.init_method,
+                        stride=target.stride,
+                        keep_master_weight_for_test=target.keep_master_weight_for_test,
+                        skip_bias_add=target.skip_bias_add,
+                        **self.lora_kwargs
+                    )
+                elif self.enable_lora:
+                    new_module = MergedLinear(
+                        in_features, out_features, bias=bias, **kwargs)
+                self._replace_module(parent, target_name, new_module, target)
+        if not is_target_modules_in_base_model:
+            raise ValueError(
+                f"Target modules {self.peft_config.target_modules} not found in the base model. "
+                f"Please check the target modules and try again."
+            )
+
+    def _get_submodules(self, key):
+        parent = self.get_submodule(".".join(key.split(".")[:-1]))
+        target_name = key.split(".")[-1]
+        target = self.get_submodule(key)
+        return parent, target, target_name

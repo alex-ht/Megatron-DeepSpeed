@@ -285,6 +285,9 @@ class ColumnParallelLinear(torch.nn.Module):
         self.input_size = input_size
         self.output_size = output_size
         self.gather_output = gather_output
+        self.init_method = init_method
+        self.stride = stride
+        self.keep_master_weight_for_test = keep_master_weight_for_test
         # Divide the weight matrix along the last dimension.
         world_size = get_tensor_model_parallel_world_size()
         self.output_size_per_partition = divide(output_size, world_size)
@@ -295,16 +298,6 @@ class ColumnParallelLinear(torch.nn.Module):
         # we allocate the transpose.
         # Initialize weight.
         args = get_args()
-        self.enable_lora = args.enable_lora
-        if args.enable_lora:
-            self.lora_r = args.lora_r
-            self.lora_alpha = args.lora_alpha
-            if args.lora_dropout > 0:
-                self.lora_dropout = torch.nn.Dropout(p=args.lora_dropout)
-            else:
-                self.lora_dropout = lambda x: x
-            self.lora_scaling = self.lora_alpha / self.lora_r
-
         if args.use_cpu_initialization:
             self.weight = Parameter(torch.empty(self.output_size_per_partition,
                                                 self.input_size,
@@ -313,36 +306,12 @@ class ColumnParallelLinear(torch.nn.Module):
                 self.weight, self.output_size, self.input_size,
                 self.output_size_per_partition, 0, init_method,
                 stride=stride, return_master_weight=keep_master_weight_for_test)
-            if args.enable_lora:
-                self.lora_A = Parameter(torch.empty(self.output_size_per_partition,
-                                                self.lora_r,
-                                                dtype=args.params_dtype))
-                self.lora_A_master = _initialize_affine_weight_cpu(
-                    self.lora_A, self.output_size, self.input_size,
-                    self.output_size_per_partition, 0, init_method,
-                    stride=stride, return_master_weight=keep_master_weight_for_test)
-                self.lora_B = Parameter(torch.empty(self.lora_r,
-                                                self.input_size,
-                                                dtype=args.params_dtype))
-                with torch.no_grad():
-                    self.lora_B.zero_()
         else:
             self.weight = Parameter(torch.empty(
                 self.output_size_per_partition, self.input_size,
                 device=torch.cuda.current_device(), dtype=args.params_dtype))
             _initialize_affine_weight_gpu(self.weight, init_method,
                                           partition_dim=0, stride=stride)
-            if args.enable_lora:
-                self.lora_A = Parameter(torch.empty(
-                    self.output_size_per_partition, self.lora_r,
-                    device=torch.cuda.current_device(), dtype=args.params_dtype))
-                _initialize_affine_weight_gpu(self.lora_A, init_method,
-                                            partition_dim=0, stride=stride)
-                self.lora_B = Parameter(torch.empty(
-                    self.lora_r, self.input_size,
-                    device=torch.cuda.current_device(), dtype=args.params_dtype))
-                with torch.no_grad():
-                    self.lora_B.zero_()
 
         if bias:
             if args.use_cpu_initialization:
@@ -369,11 +338,6 @@ class ColumnParallelLinear(torch.nn.Module):
 
         bias = self.bias if not self.skip_bias_add else None
         output_parallel = F.linear(input_parallel, self.weight, bias)
-        if self.enable_lora:
-            tmp = F.linear(input_parallel, self.lora_B, None)
-            output_parallel_lora = F.linear(tmp, self.lora_A, bias)
-            output_parallel_lora *= self.lora_scaling
-            output_parallel += output_parallel_lora
         if self.gather_output:
             # All-gather across the partitions.
             output = gather_from_tensor_model_parallel_region(output_parallel)
@@ -424,6 +388,9 @@ class RowParallelLinear(torch.nn.Module):
         self.input_size = input_size
         self.output_size = output_size
         self.input_is_parallel = input_is_parallel
+        self.init_method = init_method
+        self.stride = stride
+        self.keep_master_weight_for_test = keep_master_weight_for_test
         # Divide the weight matrix along the last dimension.
         world_size = get_tensor_model_parallel_world_size()
         self.input_size_per_partition = divide(input_size, world_size)
@@ -434,16 +401,6 @@ class RowParallelLinear(torch.nn.Module):
         # we allocate the transpose.
         # Initialize weight.
         args = get_args()
-        self.enable_lora = args.enable_lora
-        if args.enable_lora:
-            self.lora_r = args.lora_r
-            self.lora_alpha = args.lora_alpha
-            if args.lora_dropout > 0:
-                self.lora_dropout = torch.nn.Dropout(p=args.lora_dropout)
-            else:
-                self.lora_dropout = lambda x: x
-            self.lora_scaling = self.lora_alpha / self.lora_r
-
         if args.use_cpu_initialization:
             self.weight = Parameter(torch.empty(self.output_size,
                                                 self.input_size_per_partition,
@@ -452,37 +409,12 @@ class RowParallelLinear(torch.nn.Module):
                 self.weight, self.output_size, self.input_size,
                 self.input_size_per_partition, 1, init_method,
                 stride=stride, return_master_weight=keep_master_weight_for_test)
-            if args.enable_lora:
-                self.lora_A = Parameter(torch.empty(self.output_size,
-                                                self.lora_r,
-                                                dtype=args.params_dtype))
-                self.lora_A_master = _initialize_affine_weight_cpu(
-                    self.lora_A, self.output_size, self.input_size,
-                    self.input_size_per_partition, 1, init_method,
-                    stride=stride, return_master_weight=keep_master_weight_for_test)
-                self.lora_B = Parameter(torch.empty(self.lora_r,
-                                                self.input_size_per_partition,
-                                                dtype=args.params_dtype))
-                with torch.no_grad():
-                    self.lora_B.zero_()
         else:
             self.weight = Parameter(torch.empty(
                 self.output_size, self.input_size_per_partition,
                 device=torch.cuda.current_device(), dtype=args.params_dtype))
             _initialize_affine_weight_gpu(self.weight, init_method,
                                           partition_dim=1, stride=stride)
-            if args.enable_lora:
-                self.lora_A = Parameter(torch.empty(
-                    self.output_size, self.lora_r,
-                    device=torch.cuda.current_device(), dtype=args.params_dtype))
-                _initialize_affine_weight_gpu(self.lora_A, init_method,
-                                            partition_dim=0, stride=stride)
-                self.lora_B = Parameter(torch.empty(
-                    self.lora_r, self.input_size_per_partition,
-                    device=torch.cuda.current_device(), dtype=args.params_dtype))
-                with torch.no_grad():
-                    self.lora_B.zero_()
-        
         if bias:
             if args.use_cpu_initialization:
                 self.bias = Parameter(torch.empty(self.output_size,
@@ -506,15 +438,8 @@ class RowParallelLinear(torch.nn.Module):
             input_parallel = input_
         else:
             input_parallel = scatter_to_tensor_model_parallel_region(input_)
-        
         # Matrix multiply.
         output_parallel = F.linear(input_parallel, self.weight)
-        if self.enable_lora:
-            tmp = F.linear(input_parallel, self.lora_B, None)
-            output_parallel_lora = F.linear(tmp, self.lora_A, None)
-            output_parallel_lora *= self.lora_scaling
-            output_parallel += output_parallel_lora
-        
         # All-reduce across all the partitions.
         output_ = reduce_from_tensor_model_parallel_region(output_parallel)
 
